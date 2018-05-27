@@ -2,13 +2,18 @@ import os
 import sys
 import socket
 import struct
-import select
 import time
 
-default_timer = time.clock  # TODO
 ICMP_REQUEST_TYPE = 8
 ICMP_REPLY_TYPE = 0
 ICMP_CODE = 0
+
+
+def to_digit(value):
+    if isinstance(value, int):
+        return value
+
+    return ord(value)
 
 
 def checksum(source):
@@ -17,9 +22,9 @@ def checksum(source):
 
     for char in range(0, length, 2):
         if char + 1 == length:
-            checksum_return += ord(source[char])
+            checksum_return += to_digit(source[char])
             break
-        checksum_return += (ord(source[char + 1]) << 8) + ord(source[char])
+        checksum_return += (to_digit(source[char + 1]) << 8) + to_digit(source[char])
 
     checksum_return = (checksum_return >> 16) + (checksum_return & 0xffff)
     checksum_return += (checksum_return >> 16)
@@ -28,35 +33,29 @@ def checksum(source):
     return checksum_return & 0xffff
 
 
-def receive_one_ping(my_socket, ID, timeout):
+def receive_one_ping(sock, process_id, timeout):
     """
     receive the ping from the socket.
     """
-    timeLeft = timeout
-    while True:
-        startedSelect = default_timer()
-        whatReady = select.select([my_socket], [], [], timeLeft)
-        howLongInSelect = (default_timer() - startedSelect)
-        if whatReady[0] == []: # Timeout
-            return
+    sock.settimeout(timeout)
+    try:
+        start_time = time.clock()
+        data, _ = sock.recvfrom(1024)
+        end_time = time.clock()
+    except socket.timeout:
+        print("timeout lmao")
+        sys.exit()
+    except socket.error:
+        print("not good lol")
+        sys.exit()
+    finally:
+        sock.close()
 
-        timeReceived = default_timer()
-        recPacket, addr = my_socket.recvfrom(1024)
-        icmpHeader = recPacket[20:28]
-        type, code, checksum, packetID, sequence = struct.unpack(
-            "bbHHh", icmpHeader
-        )
-        # Filters out the echo request itself.
-        # This can be tested by pinging 127.0.0.1
-        # You'll see your own request
-        if type != 8 and packetID == ID:
-            bytesInDouble = struct.calcsize("d")
-            timeSent = struct.unpack("d", recPacket[28:28 + bytesInDouble])[0]
-            return timeReceived - timeSent
+    header = data[20:28]
+    unpacked = struct.unpack("BBHHH", header)
+    total_time = end_time - start_time
 
-        timeLeft = timeLeft - howLongInSelect
-        if timeLeft <= 0:
-            return
+    return total_time, unpacked
 
 
 def send_one_ping(sock, destination, process_id, sequence_num):
@@ -72,26 +71,18 @@ def send_one_ping(sock, destination, process_id, sequence_num):
     header = struct.pack("BBHHH", ICMP_REQUEST_TYPE, ICMP_CODE, icmp_checksum, process_id,
                          sequence_num)
 
-    # pad_bytes = []
-    # start_val = 0x42
-    # for i in range(start_val, start_val + (self.packet_size)):
-    #     pad_bytes += [(i & 0xff)]  # Keep chars in the 0-255 range
-    # # data = bytes(pad_bytes)
-    # data = bytearray(pad_bytes)
-
     # Calculate the checksum on the data and the dummy header.
-    icmp_checksum = icmp_checksum(header)
+    icmp_checksum = checksum(header)
 
-    # Now that we have the right checksum, we put that in. It's just easier
-    # to make up a new header than to stuff it into the dummy.
-    header = struct.pack(
-        "bbHHh", ICMP_REQUEST_TYPE, 0, socket.htons(icmp_checksum), process_id, 1
-    )
-    packet = header + data
-    sock.sendto(packet, (destination, 1)) # Don't know about the 1
+    # Now that we have the right checksum, we put that in
+    # socket.htons
+    header = struct.pack("BBHHH", ICMP_REQUEST_TYPE, ICMP_CODE, icmp_checksum, process_id,
+                         sequence_num)
+
+    sock.sendto(header, (destination, 1))  # port number is not relevant for ICMP
 
 
-def do_one(dest_addr, timeout):
+def do_one(dest_addr, timeout, sequence_num):
     """
     Returns either the delay (in seconds) or none on timeout.
     """
@@ -103,36 +94,34 @@ def do_one(dest_addr, timeout):
 
     process_id = os.getpid() & 0xFFFF
 
-    send_one_ping(sock, dest_addr, process_id)
+    send_one_ping(sock, dest_addr, process_id, sequence_num)
     delay = receive_one_ping(sock, process_id, timeout)
 
     sock.close()
     return delay
 
 
-def ping(destination, timeout=2, count=4):
+def ping(destination, timeout=1, count=3):
     """
     Send >count< ping to >dest_addr< with the given >timeout< and display
     the result.
     """
-    for i in range(count):
-        # print ("ping %s..." % dest_addr,
-        try:
-            delay = do_one(destination, timeout)
-        except socket.gaierror:
-            print("nah")
-            break
-
-        if delay is None:
-            print("failed. (timeout within %ssec.)" % timeout)
-        else:
-            delay = delay * 1000
-            print("get ping in %0.4fms" % delay)
+    print(do_one(destination, timeout, 1))
+    # for i in range(count):
+    #     # print ("ping %s..." % dest_addr,
+    #     try:
+    #         delay = do_one(destination, timeout)
+    #     except socket.gaierror:
+    #         print("nah")
+    #         break
+    #
+    #     if delay is None:
+    #         print("failed. (timeout within %ssec.)" % timeout)
+    #     else:
+    #         delay = delay * 1000
+    #         print("get ping in %0.4fms" % delay)
     # print
 
 
 if __name__ == '__main__':
-    ping("heise.de")
-    ping("google.com")
-    ping("a-test-url-taht-is-not-available.com")
-    ping("192.168.1.1")
+    ping("uq.edu.au")
