@@ -43,7 +43,7 @@ def receive_one_ping(sock, process_id, timeout):
         data, _ = sock.recvfrom(1024)
         end_time = time.clock()
     except socket.timeout:
-        print("timeout lmao")
+        print("Request timed out")
         sys.exit()
     except socket.error:
         print("not good lol")
@@ -82,7 +82,7 @@ def send_one_ping(sock, destination, process_id, sequence_num):
     sock.sendto(header, (destination, 1))  # port number is not relevant for ICMP
 
 
-def do_one(dest_addr, timeout, sequence_num):
+def do_one(destination, timeout, sequence_num):
     """
     Returns either the delay (in seconds) or none on timeout.
     """
@@ -94,11 +94,52 @@ def do_one(dest_addr, timeout, sequence_num):
 
     process_id = os.getpid() & 0xFFFF
 
-    send_one_ping(sock, dest_addr, process_id, sequence_num)
+    send_one_ping(sock, destination, process_id, sequence_num)
     delay = receive_one_ping(sock, process_id, timeout)
 
     sock.close()
     return delay
+
+
+def traceroute(destination, max_hops=50, timeout=1):
+    ttl = 1
+    while ttl < max_hops:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.getprotobyname("icmp"))
+            sock.settimeout(timeout)
+            sock.setsockopt(socket.SOL_IP, socket.IP_TTL, ttl)
+        except socket.error:
+            print("oh no")
+            sys.exit()
+
+        destination = socket.gethostbyname(destination)
+        icmp_checksum = 0
+        header = struct.pack("BBHHH", ICMP_REQUEST_TYPE, ICMP_CODE, icmp_checksum, 0, 0)
+        icmp_checksum = checksum(header)
+        header = struct.pack("BBHHH", ICMP_REQUEST_TYPE, ICMP_CODE, icmp_checksum, 0, 0)
+
+        sock.sendto(header, (socket.gethostbyname(destination), 1))
+
+        try:
+            start_time = time.clock()
+            data, address = sock.recvfrom(1024)
+            end_time = time.clock()
+        except socket.timeout:
+            ttl += 1
+            continue
+        except socket.error:
+            print("this is fine")
+            sys.exit()
+        finally:
+            sock.close()
+
+        if address:
+            if address[0] == destination:
+                break
+
+        ttl += 1
+
+    return ttl, end_time - start_time
 
 
 def ping(destination, timeout=1, count=3):
@@ -106,22 +147,39 @@ def ping(destination, timeout=1, count=3):
     Send >count< ping to >dest_addr< with the given >timeout< and display
     the result.
     """
-    print(do_one(destination, timeout, 1))
-    # for i in range(count):
-    #     # print ("ping %s..." % dest_addr,
-    #     try:
-    #         delay = do_one(destination, timeout)
-    #     except socket.gaierror:
-    #         print("nah")
-    #         break
-    #
-    #     if delay is None:
-    #         print("failed. (timeout within %ssec.)" % timeout)
-    #     else:
-    #         delay = delay * 1000
-    #         print("get ping in %0.4fms" % delay)
-    # print
+    total_time = 0
+
+    for i in range(count):
+        total_time += do_one(destination, timeout, 1)[0]
+
+    return total_time
+
+
+def main():
+    args = sys.argv
+    if len(args) != 2:
+        print("Usage: python pyping.py hostname")
+        sys.exit()
+
+    host = args[1]
+    print("Pyping by E. Bennett\n")
+
+    try:
+        ip = socket.gethostbyname(host)
+    except socket.error:
+        print("Not a valid host name")
+        sys.exit()
+
+    print("Sending 3 pings to {0}, {1}".format(host, ip))\
+
+    total_time = ping(host)
+    num_hops, time_taken = traceroute(host)
+
+    total_time += time_taken
+    average_time = round((total_time * 1000) / 3)
+
+    print("3 replies received with average {0}ms, {1} hops".format(average_time, num_hops))
 
 
 if __name__ == '__main__':
-    ping("uq.edu.au")
+    main()
