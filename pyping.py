@@ -10,6 +10,11 @@ ICMP_CODE = 0
 
 
 def to_digit(value):
+    """ Converts a value to be numeric
+    :param value: the value to be converted to a number
+    :return: the value itself it is already a number, else the
+            numeric form of the value
+    """
     if isinstance(value, int):
         return value
 
@@ -17,6 +22,10 @@ def to_digit(value):
 
 
 def checksum(source):
+    """ Calculates a checksum for source to be used in network communications
+    :param source: the input to calculate the checksum for
+    :return: the calculated checksum
+    """
     checksum_return = 0
     length = len(source)
 
@@ -33,9 +42,12 @@ def checksum(source):
     return checksum_return & 0xffff
 
 
-def receive_one_ping(sock, process_id, timeout):
-    """
-    receive the ping from the socket.
+def receive_one_ping(sock, timeout):
+    """ Received a ping from the given scoket
+    :param sock: the socket to receive the ping from
+    :param timeout: the time after which to stop waiting for a ping to be received
+    :return: a tuple containing the total time taken to receive the response and
+            the received ping packet
     """
     sock.settimeout(timeout)
     try:
@@ -59,8 +71,11 @@ def receive_one_ping(sock, process_id, timeout):
 
 
 def send_one_ping(sock, destination, process_id, sequence_num):
-    """
-    Send one ping to the address given by destination.
+    """ Sends a single ping packet to the given destination via the socket
+    :param sock: the socket to send the ping over
+    :param destination: the host to send the ping to
+    :param process_id: the ID of the ping
+    :param sequence_num: the sequence number of the ping
     """
     destination = socket.gethostbyname(destination)
 
@@ -83,8 +98,11 @@ def send_one_ping(sock, destination, process_id, sequence_num):
 
 
 def do_one(destination, timeout, sequence_num):
-    """
-    Returns either the delay (in seconds) or none on timeout.
+    """ Completes an entire ping packet send/receive and returns the time taken for this process
+    :param destination: the host to ping
+    :param timeout: the maximum time to wait for a response to the ping
+    :param sequence_num: the sequence number of the ping
+    :return: the time taken to complete the ping or None on timeout
     """
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.getprotobyname("icmp"))
@@ -95,14 +113,23 @@ def do_one(destination, timeout, sequence_num):
     process_id = os.getpid() & 0xFFFF
 
     send_one_ping(sock, destination, process_id, sequence_num)
-    delay = receive_one_ping(sock, process_id, timeout)
+    delay = receive_one_ping(sock, timeout)
 
     sock.close()
     return delay
 
 
 def traceroute(destination, max_hops=50, timeout=1):
+    """ Calculates the number of hops required to reach the given destination
+    :param destination: the hostname being traced
+    :param max_hops: the max number of hops to be completed
+    :param timeout: the max time to wait for a response after sending a packet
+    :return: a tuple containing the number of hops and the time taken to complete
+            the final hop
+    """
     ttl = 1
+    start_time = 0
+    end_time = 0
     while ttl < max_hops:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.getprotobyname("icmp"))
@@ -143,14 +170,16 @@ def traceroute(destination, max_hops=50, timeout=1):
 
 
 def ping(destination, timeout=1, count=3):
-    """
-    Send >count< ping to >dest_addr< with the given >timeout< and display
-    the result.
+    """ Sends the given count of ICMP ping packets to the destination
+    :param destination: the hostname to ping
+    :param timeout: the maximum time to wait for a response from the host being pinged
+    :param count: the number of pings to send
+    :return: total time taken to complete all pings
     """
     total_time = 0
 
     for i in range(count):
-        total_time += do_one(destination, timeout, 1)[0]
+        total_time += do_one(destination, timeout, i)[0]
 
     return total_time
 
