@@ -4,6 +4,7 @@ import socket
 import struct
 import time
 
+# constants for use in making and receiving ICMP messages
 ICMP_REQUEST_TYPE = 8
 ICMP_REPLY_TYPE = 0
 ICMP_CODE = 0
@@ -79,7 +80,8 @@ def send_one_ping(sock, destination, process_id, sequence_num):
     """
     destination = socket.gethostbyname(destination)
 
-    # Header is type (8), code (8), checksum (16), id (16), sequence (16)
+    # Header is: type (8), code (8), checksum (16), id (16), sequence (16)
+
     icmp_checksum = 0
 
     # Make a dummy header with a 0 checksum.
@@ -90,7 +92,6 @@ def send_one_ping(sock, destination, process_id, sequence_num):
     icmp_checksum = checksum(header)
 
     # Now that we have the right checksum, we put that in
-    # socket.htons
     header = struct.pack("BBHHH", ICMP_REQUEST_TYPE, ICMP_CODE, icmp_checksum, process_id,
                          sequence_num)
 
@@ -185,6 +186,10 @@ def ping(destination, timeout=1, count=3):
 
 
 def main():
+    """
+    Demonstrates usage of the above functions
+    """
+    
     args = sys.argv
     if len(args) != 2:
         print("Usage: python pyping.py hostname")
@@ -199,7 +204,7 @@ def main():
         print("Not a valid host name")
         sys.exit()
 
-    print("Sending 3 pings to {0}, {1}".format(host, ip))\
+    print("Sending 3 pings to {0}, IP {1}".format(host, ip))
 
     total_time = ping(host)
     num_hops, time_taken = traceroute(host)
